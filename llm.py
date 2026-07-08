@@ -1,16 +1,15 @@
 """
-Groq client and a thin, traced wrapper around chat completions.
+LangChain / Groq chat models and a traced invoke helper.
 
-Every call routed through `traced_chat` is timed and logged to the trace
-table (see tracing.py), so the rest of the codebase never talks to the raw
-client directly.
+The rest of the codebase builds LangChain runnables (structured output,
+tool binding) and runs them through `traced_invoke`, which times each call
+and logs token usage / cost to the trace table (see tracing.py).
 """
 
 import os
 import time
-import asyncio
 from dotenv import load_dotenv
-from groq import Groq
+from langchain_groq import ChatGroq
 
 import tracing
 
@@ -18,27 +17,55 @@ load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# Models — Llama-4 Scout supports structured outputs and tool calling.
-ROUTER_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
-QUERY_MODEL  = "meta-llama/llama-4-scout-17b-16e-instruct"
-
-client = Groq(api_key=GROQ_API_KEY)
+# Models — Llama 3.3 70B supports structured outputs and tool calling on Groq.
+ROUTER_MODEL = "llama-3.3-70b-versatile"
+QUERY_MODEL  = "llama-3.3-70b-versatile"
 
 
-async def traced_chat(call_type: str, **kwargs):
+def get_chat(model: str, temperature: float = 0.2, max_tokens: int = 1024) -> ChatGroq:
+    """Build a ChatGroq model. Callers add structured output / tools on top."""
+    return ChatGroq(
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        api_key=GROQ_API_KEY,
+    )
+
+
+class _Usage:
+    """Adapter so LangChain's usage_metadata dict fits tracing.log_call."""
+    def __init__(self, prompt_tokens: int, completion_tokens: int, total_tokens: int):
+        self.prompt_tokens     = prompt_tokens
+        self.completion_tokens = completion_tokens
+        self.total_tokens      = total_tokens
+
+
+def _extract_usage(result) -> _Usage:
     """
-    Run a chat completion off the event loop and log it.
-
-    `call_type` is a short label (e.g. "router", "query") used to group
-    calls in the metrics view. All other kwargs are forwarded to Groq.
+    Pull token usage from an invoke result. `result` is either an AIMessage
+    or the {"raw", "parsed", "parsing_error"} dict from structured output.
     """
-    model = kwargs.get("model")
+    ai = result.get("raw") if isinstance(result, dict) else result
+    um = getattr(ai, "usage_metadata", None) or {}
+    prompt_tokens     = um.get("input_tokens", 0) or 0
+    completion_tokens = um.get("output_tokens", 0) or 0
+    total_tokens      = um.get("total_tokens", prompt_tokens + completion_tokens) or (prompt_tokens + completion_tokens)
+    return _Usage(prompt_tokens, completion_tokens, total_tokens)
+
+
+async def traced_invoke(call_type: str, runnable, messages, model: str):
+    """
+    Run a LangChain runnable asynchronously and log the call.
+
+    `call_type` groups calls in the metrics view ("router", "query", ...);
+    `model` is used for cost estimation.
+    """
     start = time.perf_counter()
     try:
-        response = await asyncio.to_thread(client.chat.completions.create, **kwargs)
+        result = await runnable.ainvoke(messages)
         latency_ms = (time.perf_counter() - start) * 1000
-        tracing.log_call(call_type, model, getattr(response, "usage", None), latency_ms, success=True)
-        return response
+        tracing.log_call(call_type, model, _extract_usage(result), latency_ms, success=True)
+        return result
     except Exception as e:
         latency_ms = (time.perf_counter() - start) * 1000
         tracing.log_call(call_type, model, None, latency_ms, success=False, error=str(e))

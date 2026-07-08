@@ -2,16 +2,16 @@
 
 A personal finance tracker that runs entirely inside WhatsApp. Instead of opening a spreadsheet or a budgeting app, you text the bot in plain English and it logs, transfers, edits, or summarizes your finances for you.
 
-The bot parses free-form messages with an LLM-based router (Groq, Llama-4 Scout) into structured actions, then executes them against a MongoDB-backed ledger — handling multiple transactions in a single message, running balances, credit card limits, and full CRUD on past entries.
+The bot parses free-form messages with an LLM-based router (LangChain + Groq, Llama 3.3 70B) into structured actions, then executes them against a MongoDB-backed ledger — handling multiple transactions in a single message, running balances, credit card limits, and full CRUD on past entries.
 
-Router output is validated against Pydantic schemas (with an automatic retry when the model returns something off-schema), free-text questions are answered through function/tool calling, and every LLM call is logged to a local trace table for cost, latency and reliability tracking.
+Router output is bound to Pydantic schemas through LangChain's structured output (with an automatic retry when the model returns something off-schema), free-text questions are answered through LangChain tool calling, and every LLM call is logged to a local trace table for cost, latency and reliability tracking.
 
 ## Features
 
 * **Natural language input** — no fixed commands or menus; describe transactions the way you'd say them out loud.
 * **Multi-action parsing** — a single message like *"Spent 500 on lunch and got my 50k salary"* is split into separate, correctly-typed transactions.
-* **Validated structured output** — every parse is checked against a Pydantic schema; malformed responses trigger a corrective retry, then a lenient salvage pass, so bad JSON never reaches the ledger.
-* **Tool-calling query agent** — questions like *"show my spending this month"* let the model call typed tools (`get_spending`, `get_account_balances`, `get_credit_info`, `get_recent_transactions`) that read from the DB, keeping the numbers computed in Python.
+* **Validated structured output** — LangChain binds the model to a Pydantic schema; malformed responses trigger a corrective retry, then a lenient salvage pass, so bad JSON never reaches the ledger.
+* **Tool-calling query agent** — questions like *"show my spending this month"* let the model call typed LangChain tools (`get_spending`, `get_account_balances`, `get_credit_info`, `get_recent_transactions`) that read from the DB, keeping the numbers computed in Python.
 * **Running balances** — balances and credit limits are computed on demand from the full transaction history, including transfers between accounts.
 * **Credit card tracking** — set a limit per card and get spend/remaining/utilization on every transaction.
 * **Edit and delete by ID** — every transaction gets a short unique ID so you can correct or remove it later (`Update #DM5VD amount to 4000`).
@@ -23,7 +23,8 @@ Router output is validated against Pydantic schemas (with an automatic retry whe
 
 * **Backend:** Python 3, FastAPI, Uvicorn
 * **Database:** MongoDB (Motor async driver)
-* **LLM:** Groq API (Llama-4 Scout) for intent parsing, structured output, and tool-calling query answers
+* **LLM orchestration:** LangChain (structured output + tool calling)
+* **LLM:** Groq API (Llama 3.3 70B) for intent parsing, structured output, and tool-calling query answers
 * **Validation:** Pydantic v2 schemas for the router output
 * **Observability:** SQLite trace table (no external dependency)
 * **Messaging:** Meta WhatsApp Cloud API
@@ -34,9 +35,9 @@ Router output is validated against Pydantic schemas (with an automatic retry whe
 |---------------|-----------------------------------------------------------------------|
 | `main.py`     | FastAPI app, WhatsApp webhook, and the message-processing worker      |
 | `router.py`   | Pydantic action schemas + the validated, retrying intent parser       |
-| `tools.py`    | Tool-calling query agent and its tool definitions                     |
+| `tools.py`    | LangChain tool-calling query agent and its tool definitions           |
 | `store.py`    | MongoDB access — balances, credit info, spending and history queries  |
-| `llm.py`      | Groq client and a traced chat-completion wrapper                      |
+| `llm.py`      | LangChain ChatGroq models and a traced invoke wrapper                 |
 | `tracing.py`  | SQLite trace table for cost / latency / reliability                   |
 | `evals/`      | Labelled dataset and the extraction-accuracy runner                   |
 

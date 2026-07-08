@@ -14,6 +14,7 @@ from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator, ValidationError
+from langchain_core.messages import SystemMessage, HumanMessage
 
 import llm
 
@@ -174,12 +175,23 @@ def _is_transient(err: str) -> bool:
     return any(marker in err for marker in _TRANSIENT_MARKERS)
 
 
-def _salvage(raw: str) -> list[dict]:
-    """Best-effort recovery: keep whichever action items validate individually."""
-    try:
-        blob = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        return []
+def _salvage(raw_message) -> list[dict]:
+    """
+    Best-effort recovery from the raw model turn: keep whichever action items
+    validate individually. Reads the structured tool-call args first, then
+    falls back to parsing the message content as JSON.
+    """
+    blob = None
+    if raw_message is not None:
+        tool_calls = getattr(raw_message, "tool_calls", None)
+        if tool_calls:
+            blob = tool_calls[0].get("args")
+        elif getattr(raw_message, "content", None):
+            try:
+                blob = json.loads(raw_message.content)
+            except (json.JSONDecodeError, TypeError):
+                blob = None
+
     items = blob.get("actions", []) if isinstance(blob, dict) else []
     good = []
     for item in items:
@@ -192,32 +204,26 @@ def _salvage(raw: str) -> list[dict]:
 
 async def parse_message(message_text: str, today: str) -> list[dict]:
     """
-    Parse a message into validated action dicts.
+    Parse a message into validated action dicts via LangChain structured output.
 
+    ChatGroq is bound to the MultiTransactionData schema; `include_raw=True`
+    surfaces the raw turn plus any Pydantic parsing error instead of raising.
     Retries on transient Groq errors (rate limit / 5xx) with back-off, and on
-    JSON/validation failures by feeding the error back to the model. Falls back
-    to a lenient salvage pass if every attempt still fails validation.
+    validation failures by feeding the error back to the model. Falls back to a
+    lenient salvage pass if every attempt still fails validation.
     """
-    schema   = MultiTransactionData.model_json_schema()
+    structured = llm.get_chat(llm.ROUTER_MODEL, temperature=0.1, max_tokens=1024) \
+        .with_structured_output(MultiTransactionData, include_raw=True)
+
     messages = [
-        {"role": "system", "content": ROUTER_SYSTEM_PROMPT},
-        {"role": "user",   "content": f'Today\'s date is {today}. User message: "{message_text}"'},
+        SystemMessage(content=ROUTER_SYSTEM_PROMPT),
+        HumanMessage(content=f'Today\'s date is {today}. User message: "{message_text}"'),
     ]
-    last_raw = "{}"
+    last_raw = None
 
     for attempt in range(MAX_RETRIES):
         try:
-            response = await llm.traced_chat(
-                "router",
-                model=llm.ROUTER_MODEL,
-                messages=messages,
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {"name": "multi_transaction_data", "schema": schema},
-                },
-                temperature=0.1,
-                max_tokens=1024,
-            )
+            result = await llm.traced_invoke("router", structured, messages, llm.ROUTER_MODEL)
         except Exception as e:
             if _is_transient(str(e)) and attempt < MAX_RETRIES - 1:
                 wait = 2 ** attempt
@@ -227,23 +233,21 @@ async def parse_message(message_text: str, today: str) -> list[dict]:
             print(f"[Router Error] {e}")
             raise
 
-        last_raw = response.choices[0].message.content or "{}"
-        try:
-            data = MultiTransactionData.model_validate_json(last_raw)
-            return [a.model_dump() for a in data.actions]
-        except (json.JSONDecodeError, ValidationError) as ve:
-            print(f"[Router] Validation failed (attempt {attempt + 1}): {ve}")
-            if attempt < MAX_RETRIES - 1:
-                messages.append({"role": "assistant", "content": last_raw})
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        "Your previous reply did not match the required schema:\n"
-                        f"{ve}\n"
-                        "Return ONLY corrected JSON that matches the schema. No prose."
-                    ),
-                })
-                continue
+        parsed = result.get("parsed")
+        error  = result.get("parsing_error")
+        last_raw = result.get("raw")
+
+        if parsed is not None and error is None:
+            return [a.model_dump() for a in parsed.actions]
+
+        print(f"[Router] Validation failed (attempt {attempt + 1}): {error}")
+        if attempt < MAX_RETRIES - 1:
+            messages.append(HumanMessage(content=(
+                "Your previous reply did not match the required schema:\n"
+                f"{error}\n"
+                "Return ONLY corrected data that matches the schema."
+            )))
+            continue
 
     # Every attempt failed validation — keep whatever is individually valid.
     return _salvage(last_raw)

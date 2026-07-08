@@ -9,6 +9,8 @@ numbers computed in Python and lets the model handle the language.
 
 import json
 
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
+
 import llm
 import store
 
@@ -97,75 +99,50 @@ async def _execute_tool(name: str, args: dict, sender_phone: str) -> dict:
 
 async def run_query_agent(sender_phone: str, question: str, today: str) -> str:
     """
-    Answer a finance question using tool calls against the user's data.
+    Answer a finance question using LangChain tool calls against the user's data.
 
-    One tool-calling round-trip: the model picks tools, we run them, then the
-    model writes the final natural-language reply from the results.
+    One tool-calling round-trip: the model (with tools bound) picks tools, we
+    run them, then a plain model call writes the final reply from the results.
     """
+    chat_with_tools = llm.get_chat(llm.QUERY_MODEL, temperature=0.2, max_tokens=700).bind_tools(QUERY_TOOLS)
+
     messages = [
-        {"role": "system", "content": QUERY_SYSTEM_PROMPT},
-        {"role": "user",   "content": f"Today: {today}\n\nUser question: {question}"},
+        SystemMessage(content=QUERY_SYSTEM_PROMPT),
+        HumanMessage(content=f"Today: {today}\n\nUser question: {question}"),
     ]
 
     try:
-        first = await llm.traced_chat(
-            "query",
-            model=llm.QUERY_MODEL,
-            messages=messages,
-            tools=QUERY_TOOLS,
-            tool_choice="auto",
-            temperature=0.2,
-            max_tokens=700,
-        )
+        ai = await llm.traced_invoke("query", chat_with_tools, messages, llm.QUERY_MODEL)
     except Exception:
         return "⚠️ Couldn't fetch an answer right now. Please try again in a moment."
 
-    choice = first.choices[0].message
-    tool_calls = choice.tool_calls or []
+    tool_calls = ai.tool_calls or []
 
     # No tool needed — the model answered directly.
     if not tool_calls:
-        return choice.content or "I couldn't generate an answer. Please try again."
+        return ai.content or "I couldn't generate an answer. Please try again."
 
     # Record the assistant turn (with its tool calls), then run each tool.
-    messages.append({
-        "role": "assistant",
-        "content": choice.content or "",
-        "tool_calls": [
-            {
-                "id": tc.id,
-                "type": "function",
-                "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-            }
-            for tc in tool_calls
-        ],
-    })
-
+    messages.append(ai)
     for tc in tool_calls:
         try:
-            args = json.loads(tc.function.arguments or "{}")
-        except json.JSONDecodeError:
-            args = {}
-        try:
-            result = await _execute_tool(tc.function.name, args, sender_phone)
+            result = await _execute_tool(tc["name"], tc.get("args") or {}, sender_phone)
         except Exception as e:
             # A failing tool becomes an error payload so the model can still reply.
-            print(f"[Tool Error] {tc.function.name}: {e}")
+            print(f"[Tool Error] {tc['name']}: {e}")
             result = {"error": "data lookup failed"}
-        messages.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": json.dumps(result, default=str),
-        })
+        messages.append(ToolMessage(
+            content=json.dumps(result, default=str),
+            tool_call_id=tc["id"],
+        ))
 
     try:
-        final = await llm.traced_chat(
+        final = await llm.traced_invoke(
             "query_final",
-            model=llm.QUERY_MODEL,
-            messages=messages,
-            temperature=0.3,
-            max_tokens=512,
+            llm.get_chat(llm.QUERY_MODEL, temperature=0.3, max_tokens=512),
+            messages,
+            llm.QUERY_MODEL,
         )
-        return final.choices[0].message.content or "I couldn't generate an answer. Please try again."
+        return final.content or "I couldn't generate an answer. Please try again."
     except Exception:
         return "⚠️ Couldn't fetch an answer right now. Please try again in a moment."

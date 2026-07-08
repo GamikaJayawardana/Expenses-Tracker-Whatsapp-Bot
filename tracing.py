@@ -20,6 +20,7 @@ _LOCK   = threading.Lock()
 # USD per 1,000,000 tokens, keyed by model. Update these to match the current
 # Groq price sheet — they are only used to estimate spend.
 MODEL_PRICES = {
+    "llama-3.3-70b-versatile":                   {"input": 0.59, "output": 0.79},
     "meta-llama/llama-4-scout-17b-16e-instruct": {"input": 0.11, "output": 0.34},
 }
 _DEFAULT_PRICE = {"input": 0.0, "output": 0.0}
