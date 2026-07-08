@@ -1,24 +1,28 @@
 import os
 import re
-import json
 import httpx
-import asyncio
-import secrets
-import string
 from datetime import datetime
-from typing import Optional
-import pytz
 from fastapi import FastAPI, Request, Query, HTTPException, BackgroundTasks
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
-from pydantic import BaseModel
-from groq import Groq
-from motor.motor_asyncio import AsyncIOMotorClient
+
+import tracing
+import llm
+from router import parse_message
+from tools import run_query_agent
+from store import (
+    SL_TIMEZONE,
+    transactions_collection,
+    generate_tx_id,
+    get_account_balances,
+    get_credit_info,
+)
 
 # ---------------------------------------------------------------------------
 # Bootstrap
 # ---------------------------------------------------------------------------
 load_dotenv()
+tracing.init_db()
 
 app = FastAPI(title="Groq Finance Bot - Master Edition")
 
@@ -26,133 +30,10 @@ app = FastAPI(title="Groq Finance Bot - Master Edition")
 VERIFY_TOKEN    = os.getenv("WHATSAPP_VERIFY_TOKEN")
 ACCESS_TOKEN    = os.getenv("WHATSAPP_ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_ID")
-MONGODB_URI     = os.getenv("MONGODB_URI")
-GROQ_API_KEY    = os.getenv("GROQ_API_KEY")
-SL_TIMEZONE     = pytz.timezone('Asia/Colombo')
-
-# Groq model — supports structured outputs (best-effort mode via json_schema)
-GROQ_ROUTER_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"  # structured-output capable
-GROQ_QUERY_MODEL  = "meta-llama/llama-4-scout-17b-16e-instruct"  # used for free-text answers
-
-# --- Initialize Clients ---
-groq_client  = Groq(api_key=GROQ_API_KEY)
-mongo_client = AsyncIOMotorClient(MONGODB_URI)
-db           = mongo_client.expense_tracker
-transactions_collection = db.transactions
-
-# ---------------------------------------------------------------------------
-# Data Schemas (Pydantic → used to build the JSON Schema for Groq)
-# ---------------------------------------------------------------------------
-
-class ActionItem(BaseModel):
-    """A single user intent extracted from the message."""
-    intent: str          # LOG | TRANSFER | INITIALIZE | CREDIT_LIMIT | QUERY | DELETE | UPDATE | DELETE_ALL | HELP
-    type: Optional[str]  = None   # income | expense | balance | limit
-    amount: Optional[float] = None
-    category: Optional[str] = None
-    date: Optional[str]    = None   # YYYY-MM-DD
-    account: Optional[str] = None
-    from_account: Optional[str] = None
-    to_account: Optional[str]   = None
-    transaction_id: Optional[str] = None  # e.g. "A3K9F" (without #)
-    note: Optional[str] = None
-    query_limit: Optional[int] = None     # For "last N transactions" — set to N
-
-class MultiTransactionData(BaseModel):
-    actions: list[ActionItem]
-
-# ---------------------------------------------------------------------------
-# System Prompt — carefully engineered for Groq / Llama-4
-# ---------------------------------------------------------------------------
-
-ROUTER_SYSTEM_PROMPT = """\
-You are FinanceBot, an intelligent financial transaction router for a WhatsApp expense tracker.
-
-## YOUR ONLY JOB
-Parse the user's natural-language message into a JSON list of structured actions.
-Do NOT answer conversationally. Return ONLY valid JSON that matches the provided schema.
-
-## AVAILABLE INTENTS
-| Intent        | When to use                                                         |
-|---------------|---------------------------------------------------------------------|
-| LOG           | User records an income or expense                                   |
-| TRANSFER      | Money moved between two accounts/wallets (e.g. BOC → Wallet)       |
-| INITIALIZE    | User sets an opening balance for an account/wallet                  |
-| CREDIT_LIMIT  | User sets or updates a credit card spending limit                   |
-| QUERY         | User asks a question about their finances (summary, balance, etc.)  |
-| UPDATE        | User corrects or edits a previously logged transaction by ID        |
-| DELETE        | User deletes a single transaction by ID                             |
-| DELETE_ALL    | User wants to wipe ALL their data                                   |
-| HELP          | User asks what the bot can do, or sends a greeting                  |
-
-## FIELD RULES
-- `intent`          : One of the intents above, UPPER_CASE.
-- `type`            : "income" or "expense" for LOG; "balance" for INITIALIZE; "limit" for CREDIT_LIMIT.
-- `amount`          : Numeric. Convert shorthand: 1k→1000, 1.5k→1500, 1m→1000000.
-- `category`        : Infer from context if not stated (Food, Transport, Bills, Salary, Entertainment, etc.).
-- `date`            : YYYY-MM-DD. Resolve relative dates using today's date provided in the user message.
-  - "yesterday" → subtract 1 day from today
-  - "last Monday" → calculate the most recent Monday
-  - If no date mentioned, use today's date.
-- `account`         : The account/wallet name. 
-  - IMPORTANT: If the user does NOT mention an account/wallet name, ALWAYS default to "Cash" for both income and expense LOG entries. Never leave account null.
-  - CRITICAL FOR CREDIT CARDS: When setting a CREDIT_LIMIT or logging to a credit card, the account name MUST ALWAYS end with the words "Credit Card" (e.g., "BOC Credit Card", "Visa Credit Card"). If the user says "Set my BOC credit limit", output account as "BOC Credit Card", NOT just "BOC". This prevents collisions with regular bank accounts.
-- `from_account`    : Source account for TRANSFER.
-- `to_account`      : Destination account for TRANSFER.
-- `transaction_id`  : Extract from patterns like "#ABC12" → "ABC12" (strip the #, uppercase).
-- `note`            : Any additional note or description the user provides.
-- `query_limit`     : For QUERY only. If the user asks for "last N transactions" (e.g. "last 5", "show 10 transactions", "recent 20"), set this to the integer N. Otherwise leave null.
-
-## HANDLING MULTI-INTENT MESSAGES
-A single message can contain multiple actions. Return ALL of them as separate items in the `actions` array.
-
-## EXAMPLE MAPPINGS
-User: "Got paid 50k salary into BOC today and spent 500 on lunch from wallet"
-→ [ {intent:"LOG", type:"income", amount:50000, category:"Salary", account:"BOC", date:"<today>"},
-    {intent:"LOG", type:"expense", amount:500, category:"Food", account:"Wallet", date:"<today>"} ]
-
-User: "Move 10k from BOC to my Wallet"
-→ [ {intent:"TRANSFER", amount:10000, from_account:"BOC", to_account:"Wallet"} ]
-
-User: "Paid my 5k Visa credit card bill from BOC"
-→ [ {intent:"TRANSFER", amount:5000, from_account:"BOC", to_account:"Visa Credit Card"} ]
-
-User: "Got 2000 refunded to my credit card"
-→ [ {intent:"LOG", type:"income", amount:2000, category:"Refund", account:"Credit Card", date:"<today>"} ]
-
-User: "Lent 5k to John from wallet"
-→ [ {intent:"LOG", type:"expense", amount:5000, category:"Debt: John", account:"Wallet", date:"<today>"} ]
-
-User: "John paid back 5k to BOC"
-→ [ {intent:"LOG", type:"income", amount:5000, category:"Debt: John", account:"BOC", date:"<today>"} ]
-
-User: "Set my Commercial Bank credit card limit to 200k"
-→ [ {intent:"CREDIT_LIMIT", amount:200000, account:"Commercial Bank Credit Card", type:"limit"} ]
-
-User: "Update #A3K9F amount to 600"
-→ [ {intent:"UPDATE", transaction_id:"A3K9F", amount:600} ]
-
-User: "Delete #XY99Z"
-→ [ {intent:"DELETE", transaction_id:"XY99Z"} ]
-
-User: "how much did I spend this month?"
-→ [ {intent:"QUERY"} ]
-
-User: "show my last 5 transactions" or "last 10 records"
-→ [ {intent:"QUERY", query_limit:5} ]   (use the exact number the user said)
-
-User: "hi" or "help"
-→ [ {intent:"HELP"} ]
-
-## UNKNOWN / INVALID INPUT
-If the message has no financial meaning (e.g. random text, jokes), return:
-[ {intent:"HELP"} ]
-"""
 
 # ---------------------------------------------------------------------------
 # Helper: WhatsApp message sender
 # ---------------------------------------------------------------------------
-
 async def send_whatsapp_message(to_phone_number: str, text: str):
     """Fire a text message back to the user via WhatsApp Cloud API."""
     url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
@@ -171,213 +52,11 @@ async def send_whatsapp_message(to_phone_number: str, text: str):
         if response.status_code != 200:
             print(f"[WhatsApp Error] {response.status_code}: {response.text}")
 
-# ---------------------------------------------------------------------------
-# Helper: short unique ID
-# ---------------------------------------------------------------------------
-
-def generate_tx_id() -> str:
-    """Generates a 5-character alphanumeric transaction ID."""
-    alphabet = string.ascii_uppercase + string.digits
-    return ''.join(secrets.choice(alphabet) for _ in range(5))
-
-# ---------------------------------------------------------------------------
-# Helper: call Groq router with structured output
-# ---------------------------------------------------------------------------
-
-async def call_groq_router(message_text: str, today: str) -> list[dict]:
-    """
-    Calls Groq with the router system prompt and returns a list of action dicts.
-    Uses json_schema response_format (best-effort) with retry logic.
-    """
-    max_retries = 3
-    schema = MultiTransactionData.model_json_schema()
-
-    for attempt in range(max_retries):
-        try:
-            response = await asyncio.to_thread(
-                groq_client.chat.completions.create,
-                model=GROQ_ROUTER_MODEL,
-                messages=[
-                    {"role": "system", "content": ROUTER_SYSTEM_PROMPT},
-                    {"role": "user",   "content": f"Today's date is {today}. User message: \"{message_text}\""},
-                ],
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name":   "multi_transaction_data",
-                        "schema": schema,
-                    },
-                },
-                temperature=0.1,   # Low temp → more deterministic parsing
-                max_tokens=1024,
-            )
-            raw = response.choices[0].message.content or "{}"
-            parsed = json.loads(raw)
-            return parsed.get("actions", [])
-
-        except Exception as e:
-            err_str = str(e)
-            if ("429" in err_str or "503" in err_str or "502" in err_str) and attempt < max_retries - 1:
-                wait = 2 ** attempt  # exponential back-off: 1s, 2s
-                print(f"[Groq] Rate-limited/busy, retrying in {wait}s (attempt {attempt + 1})")
-                await asyncio.sleep(wait)
-            else:
-                print(f"[Groq Router Error] {e}")
-                raise
-
-    return []
-
-# ---------------------------------------------------------------------------
-# Helper: call Groq for free-text query answers
-# ---------------------------------------------------------------------------
-
-async def call_groq_query(history_str: str, question: str, today: str) -> str:
-    """
-    Answers a user's finance question in natural language using their history.
-    """
-    system = (
-        "You are a friendly personal finance assistant for a Sri Lankan user. "
-        "The user's transaction history is provided below (pipe-separated). "
-        "Answer their question concisely using emojis for clarity. "
-        "Calculate totals yourself — show ONLY the final result, NOT the calculation steps. "
-        "If the history is empty, say so politely. "
-        "CRITICAL FORMATTING RULES for WhatsApp:\n"
-        "  1. Use ONLY single asterisks for bold: *like this* — NEVER use **double asterisks**.\n"
-        "  2. Always use 'Rs.' for currency (e.g. Rs. 1,500) — NEVER use ₹, INR, LKR, or $.\n"
-        "  3. Keep answers SHORT (max 8 lines). No verbose breakdowns or calculation formulas.\n"
-        "  4. Never show math expressions like 'Rs. 200 - Rs. 1,000 = Rs. -800'."
-    )
-    user_content = (
-        f"Today: {today}\n\n"
-        f"Transaction history (ID | Date | Type | Amount | Category | Account):\n"
-        f"{history_str}\n\n"
-        f"User question: {question}"
-    )
-
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            response = await asyncio.to_thread(
-                groq_client.chat.completions.create,
-                model=GROQ_QUERY_MODEL,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user",   "content": user_content},
-                ],
-                temperature=0.3,
-                max_tokens=512,
-            )
-            return response.choices[0].message.content or "I couldn't generate an answer. Please try again."
-        except Exception:
-            if attempt < max_retries - 1:
-                await asyncio.sleep(1)
-    return "⚠️ Couldn't fetch an answer right now. Please try again in a moment."
-
-# ---------------------------------------------------------------------------
-# Core: compute net balances and credit limits per account
-# ---------------------------------------------------------------------------
-
-# Keywords that trigger a Python-computed summary (bypass Groq)
+# Keywords that trigger a Python-computed summary (bypass the LLM entirely)
 SUMMARY_RE = re.compile(
     r'\b(summ(?:a(?:r(?:y|ies)?)?|e?ry)?|balance|overview|total|how much.*have|account.*status)\b',
     re.IGNORECASE
 )
-
-async def get_account_balances(sender_phone: str) -> dict[str, float]:
-    """
-    Returns {account: net_balance} for regular accounts only.
-    Credit-card accounts (those with an init_limit record) are excluded here;
-    their spending is tracked via get_credit_info() instead.
-    """
-    # Find all accounts that have a credit limit (treat them separately)
-    limit_cursor = transactions_collection.find(
-        {"user_phone": sender_phone, "type": "init_limit"}
-    )
-    limit_docs   = await limit_cursor.to_list(length=None)
-    cc_accounts  = {d["account"] for d in limit_docs}
-
-    cursor = transactions_collection.find({"user_phone": sender_phone}).sort("created_at", 1)
-    docs   = await cursor.to_list(length=None)
-
-    balances: dict[str, float] = {}
-
-    for t in docs:
-        tt  = t.get("type", "")
-        amt = float(t.get("amount", 0))
-        acc = t.get("account", "")
-
-        if tt == "init_balance":
-            if acc not in cc_accounts:   # only for regular accounts
-                balances[acc] = amt
-        elif tt == "income":
-            if acc not in cc_accounts:
-                balances[acc] = balances.get(acc, 0) + amt
-        elif tt == "expense":
-            if acc not in cc_accounts:   # CC expenses tracked via get_credit_info()
-                balances[acc] = balances.get(acc, 0) - amt
-        elif tt == "transfer":
-            src = t.get("from_account", "")
-            dst = t.get("to_account", "")
-            if src and src not in cc_accounts:
-                balances[src] = balances.get(src, 0) - amt
-            if dst and dst not in cc_accounts:
-                balances[dst] = balances.get(dst, 0) + amt
-        # init_limit handled separately
-
-    return balances
-
-
-async def get_credit_info(sender_phone: str) -> list[dict]:
-    """
-    Returns a list of dicts for each credit-card account:
-    {account, limit, spent, remaining, used_pct}
-    """
-    limit_cursor = transactions_collection.find(
-        {"user_phone": sender_phone, "type": "init_limit"}
-    )
-    limit_docs = await limit_cursor.to_list(length=None)
-
-    result = []
-    for ld in limit_docs:
-        acc   = ld["account"]
-        limit = float(ld["amount"])
-
-        # Fetch all transactions involving this credit card account
-        cursor = transactions_collection.find({
-            "user_phone": sender_phone,
-            "$or": [
-                {"account": acc},
-                {"to_account": acc},
-                {"from_account": acc}
-            ]
-        })
-        tx_docs = await cursor.to_list(length=None)
-
-        total_spent = 0.0
-        for d in tx_docs:
-            tt = d.get("type", "")
-            amt = float(d.get("amount", 0))
-            if tt == "expense" and d.get("account") == acc:
-                total_spent += amt
-            elif tt == "income" and d.get("account") == acc:
-                total_spent -= amt
-            elif tt == "transfer" and d.get("from_account") == acc:
-                total_spent += amt  # Cash advance
-            elif tt == "transfer" and d.get("to_account") == acc:
-                total_spent -= amt  # Bill payment
-
-        remaining   = limit - total_spent
-        used_pct    = (total_spent / limit * 100) if limit > 0 else 0
-
-        result.append({
-            "account":   acc,
-            "limit":     limit,
-            "spent":     total_spent,
-            "remaining": remaining,
-            "used_pct":  used_pct,
-        })
-
-    return result
 
 # ---------------------------------------------------------------------------
 # Core: Background worker — processes each WhatsApp message
@@ -388,9 +67,9 @@ async def process_user_message(sender_phone: str, message_text: str):
     today = datetime.now(SL_TIMEZONE).strftime('%Y-%m-%d')
 
     try:
-        # ── 1. BRAIN: Parse the message into structured actions ─────────────
+        # ── 1. BRAIN: Parse the message into structured, validated actions ──
         try:
-            actions = await call_groq_router(message_text, today)
+            actions = await parse_message(message_text, today)
         except Exception:
             await send_whatsapp_message(
                 sender_phone,
@@ -430,7 +109,7 @@ async def process_user_message(sender_phone: str, message_text: str):
                 # Fetch updated balance to show in the confirmation
                 balances = await get_account_balances(sender_phone)
                 rem_str = ""
-                
+
                 if acc in balances:
                     rem_str = f"✅ Remaining: Rs. {balances[acc]:,.0f}\n"
                 else:
@@ -499,7 +178,7 @@ async def process_user_message(sender_phone: str, message_text: str):
                 # New balances after transfer
                 new_balances = await get_account_balances(sender_phone)
                 new_src_bal  = new_balances.get(from_acc, 0)
-                
+
                 if is_cc_payment:
                     c_info = await get_credit_info(sender_phone)
                     cc_data = next((c for c in c_info if c["account"] == to_acc), None)
@@ -680,7 +359,7 @@ async def process_user_message(sender_phone: str, message_text: str):
                         "date": {"$regex": f"^{current_month}"}
                     })
                     monthly_docs = await monthly_cursor.to_list(length=None)
-                    
+
                     monthly_total = 0.0
                     cat_map = {}
                     for d in monthly_docs:
@@ -688,11 +367,11 @@ async def process_user_message(sender_phone: str, message_text: str):
                         cat = d.get("category", "General")
                         monthly_total += amt
                         cat_map[cat] = cat_map.get(cat, 0) + amt
-                        
+
                     top_cats = sorted(cat_map.items(), key=lambda x: x[1], reverse=True)[:3]
 
                     lines = ["📊 *Account Summary*", "━━━━━━━━━━━━━━━━━━━━━━"]
-                    
+
                     if monthly_total > 0:
                         lines.append(f"📅 *This Month's Spending:* Rs. {monthly_total:,.0f}")
                         if top_cats:
@@ -731,30 +410,8 @@ async def process_user_message(sender_phone: str, message_text: str):
                     await send_whatsapp_message(sender_phone, "\n".join(lines))
 
                 else:
-                    # ── Standard path: pass history to Groq for analysis ─────
-                    rows = []
-                    for t in data:
-                        tid = t.get("tx_id", "INIT")
-                        tt  = t.get("type", "")
-                        if tt == "transfer":
-                            rows.append(
-                                f"#{tid} | {t['date']} | TRANSFER | Rs.{t.get('amount',0):,.0f} "
-                                f"| {t.get('from_account')}→{t.get('to_account')}"
-                            )
-                        elif tt.startswith("init_"):
-                            label = tt.split("_")[1].upper()
-                            rows.append(
-                                f"#{tid} | {t['date']} | INIT-{label} | {t.get('account')} "
-                                f"= Rs.{t.get('amount',0):,.0f}"
-                            )
-                        else:
-                            rows.append(
-                                f"#{tid} | {t['date']} | {tt} | Rs.{t.get('amount',0):,.0f} "
-                                f"| {t.get('category','—')} | {t.get('account','—')}"
-                            )
-
-                    history_str = "\n".join(rows) if rows else "No records found."
-                    answer = await call_groq_query(history_str, message_text, today)
+                    # ── Standard path: tool-calling query agent ─────────────
+                    answer = await run_query_agent(sender_phone, message_text, today)
                     await send_whatsapp_message(sender_phone, answer)
 
             # ── HELP ──────────────────────────────────────────────────────────
@@ -855,4 +512,9 @@ async def handle_hook(request: Request, bg: BackgroundTasks):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "engine": "Groq", "model": GROQ_ROUTER_MODEL}
+    return {"status": "ok", "engine": "Groq", "model": llm.ROUTER_MODEL}
+
+@app.get("/metrics")
+async def metrics():
+    """Aggregate cost, latency and reliability across all logged LLM calls."""
+    return tracing.summary()

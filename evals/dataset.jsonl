@@ -1,0 +1,100 @@
+{"message": "Spent 500 on lunch from wallet", "expected": {"intent": "LOG", "type": "expense", "amount": 500, "category": "Food"}}
+{"message": "Bought a coffee for 350", "expected": {"intent": "LOG", "type": "expense", "amount": 350, "category": "Food"}}
+{"message": "Dinner at a restaurant cost me 2800", "expected": {"intent": "LOG", "type": "expense", "amount": 2800, "category": "Food"}}
+{"message": "Paid 1200 for groceries at Keells", "expected": {"intent": "LOG", "type": "expense", "amount": 1200, "category": "Groceries"}}
+{"message": "Weekly grocery shopping 6500 from BOC", "expected": {"intent": "LOG", "type": "expense", "amount": 6500, "category": "Groceries"}}
+{"message": "Took a tuk to office 250", "expected": {"intent": "LOG", "type": "expense", "amount": 250, "category": "Transport"}}
+{"message": "Bus fare 120 today", "expected": {"intent": "LOG", "type": "expense", "amount": 120, "category": "Transport"}}
+{"message": "Uber home was 780", "expected": {"intent": "LOG", "type": "expense", "amount": 780, "category": "Transport"}}
+{"message": "Filled petrol for 8000", "expected": {"intent": "LOG", "type": "expense", "amount": 8000, "category": "Fuel"}}
+{"message": "Fuel top up 5k from cash", "expected": {"intent": "LOG", "type": "expense", "amount": 5000, "category": "Fuel"}}
+{"message": "Paid the electricity bill 4500 from ComBank", "expected": {"intent": "LOG", "type": "expense", "amount": 4500, "category": "Bills"}}
+{"message": "Water bill was 1800 this month", "expected": {"intent": "LOG", "type": "expense", "amount": 1800, "category": "Bills"}}
+{"message": "Did a Dialog reload for 500", "expected": {"intent": "LOG", "type": "expense", "amount": 500, "category": "Bills"}}
+{"message": "Paid internet bill 3990", "expected": {"intent": "LOG", "type": "expense", "amount": 3990, "category": "Bills"}}
+{"message": "Netflix subscription 1500", "expected": {"intent": "LOG", "type": "expense", "amount": 1500, "category": "Entertainment"}}
+{"message": "Went to the cinema, tickets 2400", "expected": {"intent": "LOG", "type": "expense", "amount": 2400, "category": "Entertainment"}}
+{"message": "Spotify premium 749", "expected": {"intent": "LOG", "type": "expense", "amount": 749, "category": "Entertainment"}}
+{"message": "Bought a new shirt for 3200", "expected": {"intent": "LOG", "type": "expense", "amount": 3200, "category": "Shopping"}}
+{"message": "Got new shoes 7500 from wallet", "expected": {"intent": "LOG", "type": "expense", "amount": 7500, "category": "Shopping"}}
+{"message": "Spent 15k on clothes at the mall", "expected": {"intent": "LOG", "type": "expense", "amount": 15000, "category": "Shopping"}}
+{"message": "Doctor visit 2000", "expected": {"intent": "LOG", "type": "expense", "amount": 2000, "category": "Health"}}
+{"message": "Bought medicine for 1350", "expected": {"intent": "LOG", "type": "expense", "amount": 1350, "category": "Health"}}
+{"message": "Dental checkup cost 4500", "expected": {"intent": "LOG", "type": "expense", "amount": 4500, "category": "Health"}}
+{"message": "Paid gym membership 5000", "expected": {"intent": "LOG", "type": "expense", "amount": 5000, "category": "Health"}}
+{"message": "Monthly rent 45000 from ComBank", "expected": {"intent": "LOG", "type": "expense", "amount": 45000, "category": "Rent"}}
+{"message": "Paid house rent 30k", "expected": {"intent": "LOG", "type": "expense", "amount": 30000, "category": "Rent"}}
+{"message": "Kids school fees 18000", "expected": {"intent": "LOG", "type": "expense", "amount": 18000, "category": "Education"}}
+{"message": "Bought textbooks for 4200", "expected": {"intent": "LOG", "type": "expense", "amount": 4200, "category": "Education"}}
+{"message": "Paid 12k for an online course", "expected": {"intent": "LOG", "type": "expense", "amount": 12000, "category": "Education"}}
+{"message": "Got my salary 120k into BOC", "expected": {"intent": "LOG", "type": "income", "amount": 120000, "category": "Salary"}}
+{"message": "Salary credited 85000 today", "expected": {"intent": "LOG", "type": "income", "amount": 85000, "category": "Salary"}}
+{"message": "Received my monthly pay 95k", "expected": {"intent": "LOG", "type": "income", "amount": 95000, "category": "Salary"}}
+{"message": "Got a freelance payment of 15000 to ComBank", "expected": {"intent": "LOG", "type": "income", "amount": 15000, "category": "Freelance"}}
+{"message": "Client paid me 40k for the project", "expected": {"intent": "LOG", "type": "income", "amount": 40000, "category": "Freelance"}}
+{"message": "Got a 20000 bonus at work", "expected": {"intent": "LOG", "type": "income", "amount": 20000, "category": "Bonus"}}
+{"message": "Received 5000 as a gift", "expected": {"intent": "LOG", "type": "income", "amount": 5000, "category": "Gift"}}
+{"message": "Interest of 1200 credited to savings", "expected": {"intent": "LOG", "type": "income", "amount": 1200, "category": "Interest"}}
+{"message": "Sold my old phone for 25000", "expected": {"intent": "LOG", "type": "income", "amount": 25000, "category": "Sales"}}
+{"message": "Got 2000 refunded to my card", "expected": {"intent": "LOG", "type": "income", "amount": 2000, "category": "Refund"}}
+{"message": "Spent 450 on tea and snacks", "expected": {"intent": "LOG", "type": "expense", "amount": 450, "category": "Food"}}
+{"message": "Ordered pizza for 3600", "expected": {"intent": "LOG", "type": "expense", "amount": 3600, "category": "Food"}}
+{"message": "Breakfast at a cafe 900", "expected": {"intent": "LOG", "type": "expense", "amount": 900, "category": "Food"}}
+{"message": "Train ticket to Kandy 1500", "expected": {"intent": "LOG", "type": "expense", "amount": 1500, "category": "Transport"}}
+{"message": "Parking fee 200", "expected": {"intent": "LOG", "type": "expense", "amount": 200, "category": "Transport"}}
+{"message": "Gas cylinder refill 4300", "expected": {"intent": "LOG", "type": "expense", "amount": 4300, "category": "Bills"}}
+{"message": "Phone bill 2100 from BOC", "expected": {"intent": "LOG", "type": "expense", "amount": 2100, "category": "Bills"}}
+{"message": "Bought vegetables for 850", "expected": {"intent": "LOG", "type": "expense", "amount": 850, "category": "Groceries"}}
+{"message": "Fruits from the market 1100", "expected": {"intent": "LOG", "type": "expense", "amount": 1100, "category": "Groceries"}}
+{"message": "Concert tickets 8500", "expected": {"intent": "LOG", "type": "expense", "amount": 8500, "category": "Entertainment"}}
+{"message": "Bought a game on Steam for 4900", "expected": {"intent": "LOG", "type": "expense", "amount": 4900, "category": "Entertainment"}}
+{"message": "New headphones 12500", "expected": {"intent": "LOG", "type": "expense", "amount": 12500, "category": "Shopping"}}
+{"message": "Perfume for 6800", "expected": {"intent": "LOG", "type": "expense", "amount": 6800, "category": "Shopping"}}
+{"message": "Pharmacy 720", "expected": {"intent": "LOG", "type": "expense", "amount": 720, "category": "Health"}}
+{"message": "Eye test at the optician 3000", "expected": {"intent": "LOG", "type": "expense", "amount": 3000, "category": "Health"}}
+{"message": "Paid the CEB bill 6200 from ComBank", "expected": {"intent": "LOG", "type": "expense", "amount": 6200, "category": "Bills"}}
+{"message": "Haircut 800", "expected": {"intent": "LOG", "type": "expense", "amount": 800, "category": "Personal Care"}}
+{"message": "Salon visit 3500", "expected": {"intent": "LOG", "type": "expense", "amount": 3500, "category": "Personal Care"}}
+{"message": "Donated 2000 to charity", "expected": {"intent": "LOG", "type": "expense", "amount": 2000, "category": "Donation"}}
+{"message": "Gave 5k to the temple", "expected": {"intent": "LOG", "type": "expense", "amount": 5000, "category": "Donation"}}
+{"message": "Bought a birthday gift 4500", "expected": {"intent": "LOG", "type": "expense", "amount": 4500, "category": "Gift"}}
+{"message": "Insurance premium 9800", "expected": {"intent": "LOG", "type": "expense", "amount": 9800, "category": "Insurance"}}
+{"message": "Paid vehicle insurance 22000", "expected": {"intent": "LOG", "type": "expense", "amount": 22000, "category": "Insurance"}}
+{"message": "Car service 15500", "expected": {"intent": "LOG", "type": "expense", "amount": 15500, "category": "Transport"}}
+{"message": "Bought stationery for 650", "expected": {"intent": "LOG", "type": "expense", "amount": 650, "category": "Shopping"}}
+{"message": "Coffee with friends 1600", "expected": {"intent": "LOG", "type": "expense", "amount": 1600, "category": "Food"}}
+{"message": "Lunch buffet 3200 from cash", "expected": {"intent": "LOG", "type": "expense", "amount": 3200, "category": "Food"}}
+{"message": "Ice cream 400", "expected": {"intent": "LOG", "type": "expense", "amount": 400, "category": "Food"}}
+{"message": "Grab ride 620", "expected": {"intent": "LOG", "type": "expense", "amount": 620, "category": "Transport"}}
+{"message": "Airport taxi 4500", "expected": {"intent": "LOG", "type": "expense", "amount": 4500, "category": "Transport"}}
+{"message": "Bought a laptop bag 5900", "expected": {"intent": "LOG", "type": "expense", "amount": 5900, "category": "Shopping"}}
+{"message": "Mobile data package 1290", "expected": {"intent": "LOG", "type": "expense", "amount": 1290, "category": "Bills"}}
+{"message": "Paid maid salary 15000", "expected": {"intent": "LOG", "type": "expense", "amount": 15000, "category": "Bills"}}
+{"message": "Got 3000 cashback", "expected": {"intent": "LOG", "type": "income", "amount": 3000, "category": "Refund"}}
+{"message": "Rent income 35000 received", "expected": {"intent": "LOG", "type": "income", "amount": 35000, "category": "Rent"}}
+{"message": "Dividend of 4500 credited", "expected": {"intent": "LOG", "type": "income", "amount": 4500, "category": "Interest"}}
+{"message": "Won 10000 in a competition", "expected": {"intent": "LOG", "type": "income", "amount": 10000, "category": "Gift"}}
+{"message": "Snacks 300", "expected": {"intent": "LOG", "type": "expense", "amount": 300, "category": "Food"}}
+{"message": "Bought a book for 1950", "expected": {"intent": "LOG", "type": "expense", "amount": 1950, "category": "Education"}}
+{"message": "Tuition class fee 7000", "expected": {"intent": "LOG", "type": "expense", "amount": 7000, "category": "Education"}}
+{"message": "Spent 1.5k on lunch", "expected": {"intent": "LOG", "type": "expense", "amount": 1500, "category": "Food"}}
+{"message": "Paid 2.5k for a taxi", "expected": {"intent": "LOG", "type": "expense", "amount": 2500, "category": "Transport"}}
+{"message": "Earned 1.2m from a property sale", "expected": {"intent": "LOG", "type": "income", "amount": 1200000, "category": "Sales"}}
+{"message": "Coffee 250 and pastry 350 from wallet", "expected": {"intent": "LOG", "type": "expense", "amount": 250, "category": "Food"}}
+{"message": "Bought office supplies for 2200", "expected": {"intent": "LOG", "type": "expense", "amount": 2200, "category": "Shopping"}}
+{"message": "Paid 900 for laundry", "expected": {"intent": "LOG", "type": "expense", "amount": 900, "category": "Personal Care"}}
+{"message": "Vet bill for the dog 3800", "expected": {"intent": "LOG", "type": "expense", "amount": 3800, "category": "Health"}}
+{"message": "Pet food 2400", "expected": {"intent": "LOG", "type": "expense", "amount": 2400, "category": "Groceries"}}
+{"message": "Move 10k from BOC to my Wallet", "expected": {"intent": "TRANSFER", "amount": 10000}}
+{"message": "Transfer 5000 from Wallet to Savings", "expected": {"intent": "TRANSFER", "amount": 5000}}
+{"message": "Send 20k from Commercial Bank to cash", "expected": {"intent": "TRANSFER", "amount": 20000}}
+{"message": "I have 45000 in ComBank", "expected": {"intent": "INITIALIZE", "amount": 45000}}
+{"message": "My wallet has Rs. 2000", "expected": {"intent": "INITIALIZE", "amount": 2000}}
+{"message": "Set my BOC credit card limit to 200k", "expected": {"intent": "CREDIT_LIMIT", "amount": 200000}}
+{"message": "How much did I spend this month?", "expected": {"intent": "QUERY"}}
+{"message": "What's my BOC balance?", "expected": {"intent": "QUERY"}}
+{"message": "Show my last 5 transactions", "expected": {"intent": "QUERY", "query_limit": 5}}
+{"message": "Update #A3K9F amount to 600", "expected": {"intent": "UPDATE", "amount": 600}}
+{"message": "Delete #XY99Z", "expected": {"intent": "DELETE"}}
+{"message": "Clear all my data", "expected": {"intent": "DELETE_ALL"}}
+{"message": "hi there", "expected": {"intent": "HELP"}}
